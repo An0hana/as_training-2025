@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 查找 OpenCV
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
-
+message(STATUS "OpenCV version: ${OpenCV_VERSION}")
 # 查找 ONNX Runtime
 # 请根据实际安装路径修改 ONNXRUNTIME_DIR
 set(ONNXRUNTIME_DIR "/home/as/onnxruntime")
