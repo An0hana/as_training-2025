@@ -1,0 +1,11 @@
+build/
+install/
+log/
+weights/*.pt
+compile_commands.json
+__pycache__/
+.vscode/
+*.DS_Store
+*.cache
+*.db
+*.vscode/
