@@ -14,7 +14,7 @@ struct Detection {
 
 class YOLO11Detector {
 public:
-    YOLO11Detector(const std::string& modelPath, float confThreshold = 0.25f, float iouThreshold = 0.45f)
+    YOLO11Detector(const std::string& modelPath, float confThreshold = 0.35f, float iouThreshold = 0.45f)
         : confThreshold_(confThreshold), iouThreshold_(iouThreshold) {
 
         // 初始化 ONNX Runtime
@@ -77,8 +77,8 @@ private:
     Ort::Session session_{nullptr};
     std::string inputName_;
     std::string outputName_;
-    int64_t inputWidth_ = 640;
-    int64_t inputHeight_ = 640;
+    int64_t inputWidth_ = 960;
+    int64_t inputHeight_ = 960;
     float confThreshold_;
     float iouThreshold_;
 
