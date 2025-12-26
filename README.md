@@ -1,10 +1,6 @@
 <h1 align="center">🏎 AS_Training-2025 入门作业 🚦</h1>
 
-<p align="center">
-  <a href="https://github.com/microsoft/onnxruntime"><img src="https://img.shields.io/badge/ONNXRuntime-参考-blue?logo=onnx&logoColor=white" alt="ONNXRuntime"></a>
-  <a href="#任务一虚拟相机推理与可视化"><img src="https://img.shields.io/badge/任务-虚拟相机推理与可视化-green" alt="任务一"></a>
-  <a href="#任务二点云地面分割与锥桶聚类"><img src="https://img.shields.io/badge/任务-点云分割与聚类-orange" alt="任务二"></a>
-</p>
+
 
 ---
 
