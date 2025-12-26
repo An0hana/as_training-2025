@@ -9,3 +9,6 @@ __pycache__/
 *.cache
 *.db
 *.vscode/
+*.mp4
+*.avi
+*.mkv

@@ -1,5 +1,0 @@
-virtual_camera_node:
-  ros__parameters:
-    video_path: "/path/to/your/video.mp4"
-    loop: true
-    frame_rate: 30.0

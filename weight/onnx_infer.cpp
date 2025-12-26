@@ -1,227 +1,233 @@
-#include <iostream>
-#include <vector>
-#include <string>
 #include <algorithm>
-#include <opencv2/opencv.hpp>
+#include <iostream>
 #include <onnxruntime_cxx_api.h>
+#include <opencv2/highgui.hpp>
+#include <opencv2/opencv.hpp>
+#include <string>
+#include <vector>
 
 // YOLO11 检测结果结构
 struct Detection {
-    cv::Rect box;
-    float confidence;
-    int classId;
+  cv::Rect box;
+  float confidence;
+  int classId;
 };
 
 class YOLO11Detector {
 public:
-    YOLO11Detector(const std::string& modelPath, float confThreshold = 0.35f, float iouThreshold = 0.45f)
-        : confThreshold_(confThreshold), iouThreshold_(iouThreshold) {
+  YOLO11Detector(const std::string &modelPath, float confThreshold = 0.35f,
+                 float iouThreshold = 0.45f)
+      : confThreshold_(confThreshold), iouThreshold_(iouThreshold) {
 
-        // 初始化 ONNX Runtime
-        env_ = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "YOLO11");
-        Ort::SessionOptions sessionOptions;
-        sessionOptions.SetIntraOpNumThreads(4);
-        sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    // 初始化 ONNX Runtime
+    env_ = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "YOLO11");
+    Ort::SessionOptions sessionOptions;
+    sessionOptions.SetIntraOpNumThreads(4);
+    sessionOptions.SetGraphOptimizationLevel(
+        GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-        session_ = Ort::Session(env_, modelPath.c_str(), sessionOptions);
+    session_ = Ort::Session(env_, modelPath.c_str(), sessionOptions);
 
-        // 获取输入输出信息
-        Ort::AllocatorWithDefaultOptions allocator;
+    // 获取输入输出信息
+    Ort::AllocatorWithDefaultOptions allocator;
 
-        // 输入信息
-        auto inputName = session_.GetInputNameAllocated(0, allocator);
-        inputName_ = inputName.get();
-        auto inputShape = session_.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-        inputHeight_ = inputShape[2];
-        inputWidth_ = inputShape[3];
+    // 输入信息
+    auto inputName = session_.GetInputNameAllocated(0, allocator);
+    inputName_ = inputName.get();
+    auto inputShape =
+        session_.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+    inputHeight_ = inputShape[2];
+    inputWidth_ = inputShape[3];
 
-        // 输出信息
-        auto outputName = session_.GetOutputNameAllocated(0, allocator);
-        outputName_ = outputName.get();
+    // 输出信息
+    auto outputName = session_.GetOutputNameAllocated(0, allocator);
+    outputName_ = outputName.get();
 
-        std::cout << "load success!" << std::endl;
-        std::cout << "input size: " << inputWidth_ << "x" << inputHeight_ << std::endl;
-    }
+    std::cout << "load success!" << std::endl;
+    std::cout << "input size: " << inputWidth_ << "x" << inputHeight_
+              << std::endl;
+  }
 
-    std::vector<Detection> detect(const cv::Mat& image) {
-        cv::Mat blob;
-        preprocess(image, blob);
+  std::vector<Detection> detect(const cv::Mat &image) {
+    cv::Mat blob;
+    preprocess(image, blob);
 
-        // 准备输入张量
-        std::vector<int64_t> inputShape = {1, 3, inputHeight_, inputWidth_};
-        size_t inputTensorSize = 1 * 3 * inputHeight_ * inputWidth_;
+    // 准备输入张量
+    std::vector<int64_t> inputShape = {1, 3, inputHeight_, inputWidth_};
+    size_t inputTensorSize = 1 * 3 * inputHeight_ * inputWidth_;
 
-        std::vector<float> inputTensorValues(inputTensorSize);
-        std::memcpy(inputTensorValues.data(), blob.data, inputTensorSize * sizeof(float));
+    std::vector<float> inputTensorValues(inputTensorSize);
+    std::memcpy(inputTensorValues.data(), blob.data,
+                inputTensorSize * sizeof(float));
 
-        auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
-        Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
-            memoryInfo, inputTensorValues.data(), inputTensorSize, inputShape.data(), inputShape.size());
+    auto memoryInfo =
+        Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
+        memoryInfo, inputTensorValues.data(), inputTensorSize,
+        inputShape.data(), inputShape.size());
 
-        // 运行推理
-        const char* inputNames[] = {inputName_.c_str()};
-        const char* outputNames[] = {outputName_.c_str()};
+    // 运行推理
+    const char *inputNames[] = {inputName_.c_str()};
+    const char *outputNames[] = {outputName_.c_str()};
 
-        auto outputTensors = session_.Run(Ort::RunOptions{nullptr}, inputNames, &inputTensor, 1, outputNames, 1);
+    auto outputTensors = session_.Run(Ort::RunOptions{nullptr}, inputNames,
+                                      &inputTensor, 1, outputNames, 1);
 
-        // 获取输出
-        float* outputData = outputTensors[0].GetTensorMutableData<float>();
-        auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
+    // 获取输出
+    float *outputData = outputTensors[0].GetTensorMutableData<float>();
+    auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
 
-        // 后处理
-        return postprocess(outputData, outputShape, image.cols, image.rows);
-    }
+    // 后处理
+    return postprocess(outputData, outputShape, image.cols, image.rows);
+  }
 
 private:
-    Ort::Env env_{nullptr};
-    Ort::Session session_{nullptr};
-    std::string inputName_;
-    std::string outputName_;
-    int64_t inputWidth_ = 960;
-    int64_t inputHeight_ = 960;
-    float confThreshold_;
-    float iouThreshold_;
+  Ort::Env env_{nullptr};
+  Ort::Session session_{nullptr};
+  std::string inputName_;
+  std::string outputName_;
+  int64_t inputWidth_ = 960;
+  int64_t inputHeight_ = 960;
+  float confThreshold_;
+  float iouThreshold_;
 
-    void preprocess(const cv::Mat& image, cv::Mat& blob) {
-        cv::Mat resized;
-        cv::resize(image, resized, cv::Size(inputWidth_, inputHeight_));
+  void preprocess(const cv::Mat &image, cv::Mat &blob) {
+    cv::Mat resized;
+    cv::resize(image, resized, cv::Size(inputWidth_, inputHeight_));
 
-        // BGR -> RGB, 归一化到 [0, 1]
-        cv::Mat rgb;
-        cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
-        rgb.convertTo(rgb, CV_32F, 1.0 / 255.0);
+    // BGR -> RGB, 归一化到 [0, 1]
+    cv::Mat rgb;
+    cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
+    rgb.convertTo(rgb, CV_32F, 1.0 / 255.0);
 
-        // HWC -> CHW
-        std::vector<cv::Mat> channels(3);
-        cv::split(rgb, channels);
+    // HWC -> CHW
+    std::vector<cv::Mat> channels(3);
+    cv::split(rgb, channels);
 
-        blob = cv::Mat(3, std::vector<int>{3, (int)inputHeight_, (int)inputWidth_}.data(), CV_32F);
-        for (int c = 0; c < 3; c++) {
-            std::memcpy(blob.data + c * inputHeight_ * inputWidth_ * sizeof(float),
-                       channels[c].data, inputHeight_ * inputWidth_ * sizeof(float));
+    blob = cv::Mat(
+        3, std::vector<int>{3, (int)inputHeight_, (int)inputWidth_}.data(),
+        CV_32F);
+    for (int c = 0; c < 3; c++) {
+      std::memcpy(blob.data + c * inputHeight_ * inputWidth_ * sizeof(float),
+                  channels[c].data, inputHeight_ * inputWidth_ * sizeof(float));
+    }
+  }
+
+  std::vector<Detection> postprocess(float *output,
+                                     const std::vector<int64_t> &shape,
+                                     int origWidth, int origHeight) {
+    std::vector<Detection> detections;
+    std::vector<cv::Rect> boxes;
+    std::vector<float> confidences;
+    std::vector<int> classIds;
+
+    // YOLO11 输出格式: [1, 84, 8400] -> [1, 4+num_classes, num_predictions]
+    // 需要转置为 [8400, 84]
+    int numClasses = shape[1] - 4; // 通常是80个类别
+    int numPredictions = shape[2];
+
+    float xFactor = (float)origWidth / inputWidth_;
+    float yFactor = (float)origHeight / inputHeight_;
+
+    for (int i = 0; i < numPredictions; i++) {
+      // 获取边界框坐标 (cx, cy, w, h)
+      float cx = output[0 * numPredictions + i];
+      float cy = output[1 * numPredictions + i];
+      float w = output[2 * numPredictions + i];
+      float h = output[3 * numPredictions + i];
+
+      // 找到最大类别置信度
+      float maxClassConf = 0;
+      int maxClassId = 0;
+      for (int c = 0; c < numClasses; c++) {
+        float classConf = output[(4 + c) * numPredictions + i];
+        if (classConf > maxClassConf) {
+          maxClassConf = classConf;
+          maxClassId = c;
         }
+      }
+
+      if (maxClassConf >= confThreshold_) {
+        // 转换为 xyxy 格式并缩放到原始图像尺寸
+        int x1 = static_cast<int>((cx - w / 2) * xFactor);
+        int y1 = static_cast<int>((cy - h / 2) * yFactor);
+        int x2 = static_cast<int>((cx + w / 2) * xFactor);
+        int y2 = static_cast<int>((cy + h / 2) * yFactor);
+
+        boxes.push_back(cv::Rect(x1, y1, x2 - x1, y2 - y1));
+        confidences.push_back(maxClassConf);
+        classIds.push_back(maxClassId);
+      }
     }
 
-    std::vector<Detection> postprocess(float* output, const std::vector<int64_t>& shape,
-                                        int origWidth, int origHeight) {
-        std::vector<Detection> detections;
-        std::vector<cv::Rect> boxes;
-        std::vector<float> confidences;
-        std::vector<int> classIds;
+    // NMS
+    std::vector<int> indices;
+    cv::dnn::NMSBoxes(boxes, confidences, confThreshold_, iouThreshold_,
+                      indices);
 
-        // YOLO11 输出格式: [1, 84, 8400] -> [1, 4+num_classes, num_predictions]
-        // 需要转置为 [8400, 84]
-        int numClasses = shape[1] - 4;  // 通常是80个类别
-        int numPredictions = shape[2];
-
-        float xFactor = (float)origWidth / inputWidth_;
-        float yFactor = (float)origHeight / inputHeight_;
-
-        for (int i = 0; i < numPredictions; i++) {
-            // 获取边界框坐标 (cx, cy, w, h)
-            float cx = output[0 * numPredictions + i];
-            float cy = output[1 * numPredictions + i];
-            float w = output[2 * numPredictions + i];
-            float h = output[3 * numPredictions + i];
-
-            // 找到最大类别置信度
-            float maxClassConf = 0;
-            int maxClassId = 0;
-            for (int c = 0; c < numClasses; c++) {
-                float classConf = output[(4 + c) * numPredictions + i];
-                if (classConf > maxClassConf) {
-                    maxClassConf = classConf;
-                    maxClassId = c;
-                }
-            }
-
-            if (maxClassConf >= confThreshold_) {
-                // 转换为 xyxy 格式并缩放到原始图像尺寸
-                int x1 = static_cast<int>((cx - w / 2) * xFactor);
-                int y1 = static_cast<int>((cy - h / 2) * yFactor);
-                int x2 = static_cast<int>((cx + w / 2) * xFactor);
-                int y2 = static_cast<int>((cy + h / 2) * yFactor);
-
-                boxes.push_back(cv::Rect(x1, y1, x2 - x1, y2 - y1));
-                confidences.push_back(maxClassConf);
-                classIds.push_back(maxClassId);
-            }
-        }
-
-        // NMS
-        std::vector<int> indices;
-        cv::dnn::NMSBoxes(boxes, confidences, confThreshold_, iouThreshold_, indices);
-
-        for (int idx : indices) {
-            Detection det;
-            det.box = boxes[idx];
-            det.confidence = confidences[idx];
-            det.classId = classIds[idx];
-            detections.push_back(det);
-        }
-
-        return detections;
+    for (int idx : indices) {
+      Detection det;
+      det.box = boxes[idx];
+      det.confidence = confidences[idx];
+      det.classId = classIds[idx];
+      detections.push_back(det);
     }
+
+    return detections;
+  }
 };
 
 // 在图像上绘制检测结果
-void drawDetections(cv::Mat& image, const std::vector<Detection>& detections) {
-    // 锥桶类别名称 (3类)
-    static const std::vector<std::string> classNames = {
-        "yellow_cone", "blue_cone", "orange_cone"
-    };
-    // 对应颜色 (BGR格式)
-    static const std::vector<cv::Scalar> classColors = {
-        cv::Scalar(0, 0, 255),   // 黄色
-        cv::Scalar(255, 0, 0),     // 蓝色
-        cv::Scalar(0, 165, 255)    // 橙色
-    };
+void drawDetections(cv::Mat &image, const std::vector<Detection> &detections) {
+  // 锥桶类别名称 (3类)
+  static const std::vector<std::string> classNames = {
+      "red_cone", "blue_cone", "yellow_cone"};
+  // 对应颜色 (BGR格式)
+  static const std::vector<cv::Scalar> classColors = {
+      cv::Scalar(0, 0, 255),  // 黄色
+      cv::Scalar(255, 0, 0),  // 蓝色
+      cv::Scalar(0, 165, 255) // 橙色
+  };
 
-    for (const auto& det : detections) {
-        // 根据类别选择颜色
-        cv::Scalar color = (det.classId < classColors.size()) ?
-            classColors[det.classId] : cv::Scalar(0, 255, 0);
+  for (const auto &det : detections) {
+    // 根据类别选择颜色
+    cv::Scalar color = (det.classId < classColors.size())
+                           ? classColors[det.classId]
+                           : cv::Scalar(0, 255, 0);
 
-        // 绘制边界框
-        cv::rectangle(image, det.box, color, 2);
+    // 绘制边界框
+    cv::rectangle(image, det.box, color, 2);
 
-        // 准备标签文本
-        std::string label;
-        if (det.classId < classNames.size()) {
-            label = classNames[det.classId];
-        } else {
-            label = "class" + std::to_string(det.classId);
-        }
-        label += ": " + std::to_string(static_cast<int>(det.confidence * 100)) + "%";
-
-        // 绘制标签背景
-        int baseLine;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-        int top = std::max(det.box.y, labelSize.height);
-        cv::rectangle(image,
-                     cv::Point(det.box.x, top - labelSize.height - 5),
-                     cv::Point(det.box.x + labelSize.width, top),
-                     color, cv::FILLED);
-
-        // 绘制标签文本
-        cv::putText(image, label, cv::Point(det.box.x, top - 3),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+    // 准备标签文本
+    std::string label;
+    if (det.classId < classNames.size()) {
+      label = classNames[det.classId];
+    } else {
+      label = "class" + std::to_string(det.classId);
     }
+    label +=
+        ": " + std::to_string(static_cast<int>(det.confidence * 100)) + "%";
+
+    // 绘制标签背景
+    int baseLine;
+    cv::Size labelSize =
+        cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+    int top = std::max(det.box.y, labelSize.height);
+    cv::rectangle(image, cv::Point(det.box.x, top - labelSize.height - 5),
+                  cv::Point(det.box.x + labelSize.width, top), color,
+                  cv::FILLED);
+
+    // 绘制标签文本
+    cv::putText(image, label, cv::Point(det.box.x, top - 3),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+  }
 }
 
-int main(int argc, char* argv[]) {
-    // 默认路径，可以通过命令行参数修改
-    std::string modelPath = "/home/as/hw/as_training-2025/weight/best.onnx";
-    std::string imagePath = "/home/as/hw/as_training-2025/weight/image.png";
-    std::string outputPath = "output.jpg";
-
-    if (argc >= 3) {
-        modelPath = argv[1];
-        imagePath = argv[2];
-    }
-    if (argc >= 4) {
-        outputPath = argv[3];
-    }
+int main(int argc, char *argv[]) {
+  // 默认路径，可以通过命令行参数修改
+  std::string modelPath = "/home/as/hw/as_training-2025/weight/best.onnx";
+  std::string imagePath = "/home/as/hw/as_training-2025/weight/image.png";
+  std::string outputPath = "result.png";
 
     try {
         // 加载模型
