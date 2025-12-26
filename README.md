@@ -1,6 +1,4 @@
-<p align="center">
-  <strong style="font-size:2em;">🏎 AS_Training-2025 入门作业 🚦</strong>
-</p>
+<h1 align="center">🏎 AS_Training-2025 入门作业 🚦</h1>
 
 <p align="center">
   <a href="https://github.com/microsoft/onnxruntime"><img src="https://img.shields.io/badge/ONNXRuntime-参考-blue?logo=onnx&logoColor=white" alt="ONNXRuntime"></a>
@@ -8,6 +6,7 @@
   <a href="#任务二点云地面分割与锥桶聚类"><img src="https://img.shields.io/badge/任务-点云分割与聚类-orange" alt="任务二"></a>
 </p>
 
+---
 
 ## 📋 目录
  - [作业任务](#作业任务)
