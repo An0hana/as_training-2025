@@ -3,6 +3,7 @@ project(yolo11_onnx_infer)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # 查找 OpenCV
 find_package(OpenCV REQUIRED)
