@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(virtual_cam)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -10,6 +13,24 @@ find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(OpenCV REQUIRED)
+
+# 注册源码文件
+add_executable(virtual_cam_node src/virtual_cam_node.cpp)
+
+# 链接依赖
+ament_target_dependencies(virtual_cam_node
+  rclcpp
+  sensor_msgs
+  cv_bridge
+)
+target_link_libraries(virtual_cam_node ${OpenCV_LIBS})
+
+install(TARGETS virtual_cam_node
+  DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
