@@ -10,8 +10,7 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
 # 查找 ONNX Runtime
-# 请根据实际安装路径修改 ONNXRUNTIME_DIR
-set(ONNXRUNTIME_DIR "/home/as/onnxruntime")
+set(ONNXRUNTIME_DIR "/opt/onnxruntime")
 include_directories(${ONNXRUNTIME_DIR}/include)
 link_directories(${ONNXRUNTIME_DIR}/lib)
 
