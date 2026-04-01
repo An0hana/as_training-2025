@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.8)
 project(virtual_cam)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -8,26 +9,36 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
+# ROS依赖
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
+
+# 第三方依赖
 find_package(OpenCV REQUIRED)
 
-# 注册源码文件
-add_executable(virtual_cam_node src/virtual_cam_node.cpp)
+# 编译动态库
+add_library(virtual_cam_node SHARED src/virtual_cam_node.cpp)
 
-# 链接依赖
+# 链接ROS库
 ament_target_dependencies(virtual_cam_node
   rclcpp
   sensor_msgs
   cv_bridge
 )
-target_link_libraries(virtual_cam_node ${OpenCV_LIBS})
+
+# 链接第三方库
+target_link_libraries(virtual_cam_node 
+  ${OpenCV_LIBS}
+)
+
+# 注册组件插件
+rclcpp_components_register_node(virtual_cam_node
+  PLUGIN "as_training::VirtualCamNode"
+  EXECUTABLE virtual_cam_node_exe
+)
 
 install(TARGETS virtual_cam_node
   DESTINATION lib/${PROJECT_NAME})

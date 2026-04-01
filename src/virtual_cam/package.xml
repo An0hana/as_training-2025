@@ -4,10 +4,11 @@
   <name>virtual_cam</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="2994114386@qq.com">as</maintainer>
+  <maintainer email="7972553@gmail.com">anohana</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp_components</depend>
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
