@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(virtual_cam)
+project(virtual_cam) # 包名
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,6 +27,7 @@ ament_target_dependencies(virtual_cam_node
   rclcpp
   sensor_msgs
   cv_bridge
+  rclcpp_components
 )
 
 # 链接第三方库
@@ -40,8 +41,16 @@ rclcpp_components_register_node(virtual_cam_node
   EXECUTABLE virtual_cam_node_exe
 )
 
-install(TARGETS virtual_cam_node
-  DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY
+  launch
+  config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+install(TARGETS 
+  virtual_cam_node
+  DESTINATION lib
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
