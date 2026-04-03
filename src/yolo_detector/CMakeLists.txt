@@ -18,9 +18,7 @@ find_package(cv_bridge REQUIRED)
 
 # 第三方依赖
 find_package(OpenCV REQUIRED)
-set(ONNXRUNTIME_DIR "/opt/onnxruntime")
-include_directories(${ONNXRUNTIME_DIR}/include)
-link_directories(${ONNXRUNTIME_DIR}/lib)
+find_package(onnxruntime REQUIRED)
 
 # 编译动态库
 add_library(yolo_detector_node SHARED src/yolo_detector_node.cpp)
@@ -28,6 +26,7 @@ add_library(yolo_detector_node SHARED src/yolo_detector_node.cpp)
 # 链接ROS库
 ament_target_dependencies(yolo_detector_node
   rclcpp
+  rclcpp_components
   sensor_msgs
   cv_bridge
 )
@@ -41,11 +40,19 @@ target_link_libraries(yolo_detector_node
 # 注册组件插件
 rclcpp_components_register_node(yolo_detector_node
   PLUGIN "as_training::YoloDetectorNode"
-  EXECUTABLE yolo_detector_node_exe
+  EXECUTABLE yolo_detector_node_exe # 自动指定执行文件位置 install/yolo_detector/lib/yolo_detector/
 )
 
+install(DIRECTORY
+  launch
+  config
+  weight
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# 指定动态库位置 install/yolo_detector/lib/
 install(TARGETS yolo_detector_node
-  DESTINATION lib/${PROJECT_NAME})
+  DESTINATION lib)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

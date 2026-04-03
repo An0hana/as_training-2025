@@ -3,6 +3,7 @@ install/
 log/
 weights/*.pt
 compile_commands.json
+env.sh
 __pycache__/
 .vscode/
 *.DS_Store
