@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.8)
 project(yolo_detector)
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,22 +10,28 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# ROS依赖
-find_package(ament_cmake REQUIRED)
+# 寻找依赖(.cmake文件)
+find_package(ament_cmake REQUIRED) # ROS依赖
 find_package(rclcpp_components REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
-
-# 第三方依赖
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED) # 第三方依赖
 find_package(onnxruntime REQUIRED)
+
+include_directories(include)
+
+add_library(yolo11_inference_lib SHARED src/yolo11_inference.cpp)
+target_link_libraries(yolo11_inference_lib
+  ${OpenCV_LIBS}
+  onnxruntime::onnxruntime
+)
 
 # 编译动态库
 add_library(yolo_detector_node SHARED src/yolo_detector_node.cpp)
 
 # 链接ROS库
-ament_target_dependencies(yolo_detector_node
+ament_target_dependencies(yolo_detector_node # 查找 package.xml 中已注册的ROS依赖 
   rclcpp
   rclcpp_components
   sensor_msgs
@@ -33,8 +40,9 @@ ament_target_dependencies(yolo_detector_node
 
 # 链接第三方库
 target_link_libraries(yolo_detector_node
+  yolo11_inference_lib
   ${OpenCV_LIBS}
-  onnxruntime
+  onnxruntime::onnxruntime
 )
 
 # 注册组件插件
@@ -43,15 +51,22 @@ rclcpp_components_register_node(yolo_detector_node
   EXECUTABLE yolo_detector_node_exe # 自动指定执行文件位置 install/yolo_detector/lib/yolo_detector/
 )
 
+# 共享执行文件夹 install/yolo_detector/share/yolo_detector
 install(DIRECTORY
   launch
   config
   weight
   DESTINATION share/${PROJECT_NAME}
 )
+install(DIRECTORY
+  include
+  DESTINATION include
+)
 
 # 指定动态库位置 install/yolo_detector/lib/
-install(TARGETS yolo_detector_node
+install(TARGETS 
+  yolo11_inference_lib
+  yolo_detector_node
   DESTINATION lib)
 
 if(BUILD_TESTING)

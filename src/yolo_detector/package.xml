@@ -8,11 +8,11 @@
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <depend>rclcpp_components</depend>
+  <depend>rclcpp_components</depend> # 注册 CMakeList 中的ROS依赖
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
-  <depend>opencv</depend>
+  <depend>opencv</depend> # 提供rosdep依赖下载
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
