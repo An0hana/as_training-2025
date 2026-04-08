@@ -1,9 +1,7 @@
-#include <chrono>
+#include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
-#include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
-#include <sensor_msgs/msg/image.hpp>
 #include <string>
 
 namespace as_training {
@@ -16,30 +14,21 @@ private:
   std::string video_path_;
   double video_fps_;
 
-  void timer_callback() {
+  void timer_callback(cv::Mat &frame, cv::Mat &buffer) { // lambda 捕获内存复用
     auto start_time = std::chrono::steady_clock::now();
-    cv::Mat frame;
-    sensor_msgs::msg::Image msg;
-    size_t data_size;
-
     cap_.read(frame);
     if (frame.empty()) {
       cap_.set(cv::CAP_PROP_POS_FRAMES, 0);
       cap_.read(frame);
     }
-    cv::resize(frame, frame, cv::Size(640, 360));
+    cv::resize(frame, buffer, cv::Size(960, 960));
 
-    data_size = frame.step * frame.rows;
-    msg.data.assign(frame.data, frame.data + data_size);
-
-    msg.header.stamp = this->now();
-    msg.header.frame_id = "camera_link";
-    msg.height = frame.rows;
-    msg.width = frame.cols;
-    msg.encoding = "bgr8";
-    msg.step = static_cast<sensor_msgs::msg::Image::_step_type>(frame.step);
-
-    image_pub_->publish(msg);
+    auto msg = std::make_unique<sensor_msgs::msg::Image>(); // 独占指针
+    std_msgs::msg::Header header;
+    header.stamp = this->now();
+    header.frame_id = "camera_link";
+    cv_bridge::CvImage(header, "bgr8", buffer).toImageMsg(*msg); // cv_bridge 拷贝打包
+    image_pub_->publish(std::move(msg)); // 移交所有权
 
     auto end_time = std::chrono::steady_clock::now();
     double cost_ms =
@@ -50,10 +39,12 @@ private:
 
 public:
   explicit VirtualCamNode(const rclcpp::NodeOptions &options)
-      : rclcpp::Node("virtual_cam_node", options) { // 节点名
+      : rclcpp::Node(
+            "virtual_cam_node",
+            rclcpp::NodeOptions(options).use_intra_process_comms(true)) { // 开启进程间通信
     RCLCPP_INFO(this->get_logger(), "Constructing node...");
 
-    this->declare_parameter<std::string>("video_path", "");
+    this->declare_parameter<std::string>("video_path", ""); // 路径可做参数传递
     video_path_ = this->get_parameter("video_path").as_string();
 
     cap_.open(video_path_);
@@ -68,10 +59,13 @@ public:
 
     timer_ = this->create_wall_timer(
         std::chrono::duration<double, std::milli>(1000.0 / video_fps_),
-        [this]() { this->timer_callback(); });
+        std::function<void()>(
+            [this, frame = cv::Mat(), buffer = cv::Mat()]() mutable { // lambda 回调函数
+              this->timer_callback(frame, buffer);
+            }));
 
-    image_pub_ = this->create_publisher<sensor_msgs::msg::Image>(
-        "raw_image", rclcpp::SensorDataQoS());
+    image_pub_ =
+        this->create_publisher<sensor_msgs::msg::Image>("raw_image", 10);
   }
 };
 
