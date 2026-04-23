@@ -16,10 +16,17 @@ private:
   std::unique_ptr<YOLO11Detector> detector_;
 
   void image_callback(std::unique_ptr<sensor_msgs::msg::Image> msg) {
+    auto start_time = std::chrono::steady_clock::now();
     cv::Mat frame(msg->height, msg->width, cv_bridge::getCvType(msg->encoding),
                   msg->data.data(), msg->step);
     drawDetections(frame, detector_->detect(frame));
     image_pub_->publish(std::move(msg));
+
+    auto end_time = std::chrono::steady_clock::now();
+    double cost_ms =
+        std::chrono::duration<double, std::milli>(end_time - start_time)
+            .count();
+    RCLCPP_INFO(this->get_logger(), "%.2f ms", cost_ms);
   }
 
 public:

@@ -15,6 +15,16 @@ YOLO11Detector::YOLO11Detector(const std::string &modelPath,
   sessionOptions.SetGraphOptimizationLevel(
       GraphOptimizationLevel::ORT_ENABLE_ALL);
 
+  try{
+    OrtCUDAProviderOptions cuda_options;
+    cuda_options.device_id = 0;
+
+    sessionOptions.AppendExecutionProvider_CUDA(cuda_options);
+    std::cout << "Loading CUDA successed" << std::endl;
+  } catch(const std::exception& e){
+    std::cout << "Loadign CUDA failured" << std::endl;
+  };
+
   session_ = Ort::Session(env_, modelPath.c_str(), sessionOptions);
 
   // 获取输入输出信息
