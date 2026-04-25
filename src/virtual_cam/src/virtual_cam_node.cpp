@@ -14,20 +14,20 @@ private:
   std::string video_path_;
   double video_fps_;
 
-  void timer_callback(cv::Mat &frame, cv::Mat &buffer) { // lambda 捕获内存复用
+  void timer_callback(cv::Mat &frame) { // lambda 捕获内存复用
     auto start_time = std::chrono::steady_clock::now();
     cap_.read(frame);
     if (frame.empty()) {
       cap_.set(cv::CAP_PROP_POS_FRAMES, 0);
       cap_.read(frame);
     }
-    cv::resize(frame, buffer, cv::Size(960, 960));
+    // cv::resize(frame, buffer, cv::Size(960, 960));
 
     auto msg = std::make_unique<sensor_msgs::msg::Image>(); // 独占指针
     std_msgs::msg::Header header;
     header.stamp = this->now();
     header.frame_id = "camera_link";
-    cv_bridge::CvImage(header, "bgr8", buffer).toImageMsg(*msg); // cv_bridge 拷贝打包
+    cv_bridge::CvImage(header, "bgr8", frame).toImageMsg(*msg); // cv_bridge 拷贝打包
     image_pub_->publish(std::move(msg)); // 移交所有权
 
     auto end_time = std::chrono::steady_clock::now();
@@ -60,8 +60,8 @@ public:
     timer_ = this->create_wall_timer(
         std::chrono::duration<double, std::milli>(1000.0 / video_fps_),
         std::function<void()>(
-            [this, frame = cv::Mat(), buffer = cv::Mat()]() mutable { // lambda 回调函数
-              this->timer_callback(frame, buffer);
+            [this, frame = cv::Mat()]() mutable { // lambda 回调函数
+              this->timer_callback(frame);
             }));
 
     image_pub_ =

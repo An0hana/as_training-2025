@@ -8,7 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     yolo_pkg_dir = get_package_share_directory('yolo_detector')
     model_path = os.path.join(yolo_pkg_dir, 'weight', 'best.onnx')
-    video_file_path = '/workspace/as_training-2025/video/video.mp4'
+    video_file_path = '/workspace/as_training-2025/data/video/video.mp4'
 
     return LaunchDescription([
         SetEnvironmentVariable('RCUTILS_LOGGING_BUFFERED_STREAM', '0'),
@@ -36,13 +36,7 @@ def generate_launch_description():
                     parameters=[{"model_path": model_path}], 
                     extra_arguments=[{'use_intra_process_comms': True}] # 开启零拷贝
                 ),
-                
-                ComposableNode(
-                    package='viewer', 
-                    plugin='as_training::ViewerNode',
-                    name='viewer_node',
-                    extra_arguments=[{'use_intra_process_comms': True}] # 开启零拷贝
-                ),
+
             ],
             output='screen',
         )
