@@ -6,7 +6,7 @@ from launch.actions import SetEnvironmentVariable
 
 def generate_launch_description():
     config = os.path.join(
-        get_package_share_directory('virtual_cam'),
+        get_package_share_directory('lidar_perception'),
         'config',
         'params.yaml'
     )
@@ -15,9 +15,9 @@ def generate_launch_description():
         SetEnvironmentVariable('RCUTILS_LOGGING_BUFFERED_STREAM', '0'),
         SetEnvironmentVariable('RCUTILS_LOGGING_USE_STDOUT', '1'),
         Node(
-            package='virtual_cam', # 包名
-            executable='virtual_cam_node_exe',
-            name='virtual_cam_node', # 节点名
+            package='lidar_perception', # 包名
+            executable='lidar_perception_node_exe',
+            name='lidar_perception_node', # 节点名
             parameters=[config],
             output='screen'
         )

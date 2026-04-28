@@ -13,4 +13,4 @@ __pycache__/
 *.vscode/
 *.mp4
 *.avi
-*.mkv
+*.mkvcompile_commands.json
