@@ -1,0 +1,56 @@
+lidar_perception_node:
+  ros__parameters:
+    roi:
+      x_min: 0.5
+      x_max: 30.0
+      y_min: -15.0
+      y_max: 15.0
+      z_min: -2.0
+      z_max: 0.5
+
+    distance:
+      near_min: 1.5
+      near_max: 15.0
+      far_min: 15.0
+      far_max: 30.0
+
+    voxel:
+      near_x: 0.1
+      near_y: 0.1
+      near_z: 0.05
+      far_x: 0.05
+      far_y: 0.05
+      far_z: 0.025
+
+    ground:
+      ransac_max_iterations: 50
+      ransac_distance_threshold: 0.18
+
+    cluster:
+      base_radius: 0.3
+      radius_alpha: 0.015
+      min_neighbors: 3
+      min_size: 5
+      max_size: 500
+
+    detection:
+      max_sx: 0.8
+      max_sy: 0.8
+      min_sz: 0.1
+      max_sz: 1.2
+
+    timing:
+      fallback_dt: 0.1
+      max_dt: 0.5
+
+    tracking:
+      match_thresh: 1.0
+      alpha: 0.8
+      max_missed: 3
+
+    marker:
+      box_scale_min: 0.2
+      lifetime: 0.15
+      text_id_offset: 10000
+      text_offset_z: 0.8
+      text_scale: 0.4
