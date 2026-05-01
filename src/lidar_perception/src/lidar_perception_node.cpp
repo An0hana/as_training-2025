@@ -14,7 +14,7 @@
 #include <pcl/point_types.h>
 #include <pcl/common/common.h>
 
-#include <pcl/filters/passthrough.h>
+#include <pcl/filters/crop_box.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
@@ -29,14 +29,12 @@ public:
     explicit LidarPerceptionNode(const rclcpp::NodeOptions &options) 
         : Node("lidar_perception_node", rclcpp::NodeOptions(options).use_intra_process_comms(true))
     {
-        RCLCPP_INFO(this->get_logger(), "Architecting L4 Perception Pipeline...");
+        RCLCPP_INFO(this->get_logger(), "Constructing lidar_perception_node...");
 
         pcl_cloud_.reset(new pcl::PointCloud<pcl::PointXYZI>);
         cloud_roi_.reset(new pcl::PointCloud<pcl::PointXYZI>);
         cloud_filtered_.reset(new pcl::PointCloud<pcl::PointXYZI>);
         cloud_obstacles_.reset(new pcl::PointCloud<pcl::PointXYZI>);
-        cloud_near_.reset(new pcl::PointCloud<pcl::PointXYZI>);
-        cloud_far_.reset(new pcl::PointCloud<pcl::PointXYZI>);
         
         inliers_.reset(new pcl::PointIndices);
         coefficients_.reset(new pcl::ModelCoefficients);
@@ -44,13 +42,11 @@ public:
 
         load_params();
 
-        pass_x_.setFilterFieldName("x"); pass_x_.setFilterLimits(params_.roi_x_min, params_.roi_x_max);
-        pass_y_.setFilterFieldName("y"); pass_y_.setFilterLimits(params_.roi_y_min, params_.roi_y_max);
-        pass_z_.setFilterFieldName("z"); pass_z_.setFilterLimits(params_.roi_z_min, params_.roi_z_max);
-        pass_dist_.setFilterFieldName("x");
-        
-        voxel_near_.setLeafSize(params_.voxel_near_x, params_.voxel_near_y, params_.voxel_near_z);
-        voxel_far_.setLeafSize(params_.voxel_far_x, params_.voxel_far_y, params_.voxel_far_z);
+        Eigen::Vector4f roi_min(params_.roi_x_min, params_.roi_y_min, params_.roi_z_min, 1.0f);
+        Eigen::Vector4f roi_max(params_.roi_x_max, params_.roi_y_max, params_.roi_z_max, 1.0f);
+        crop_box_.setMin(roi_min);
+        crop_box_.setMax(roi_max);
+        crop_box_.setNegative(false);
 
         seg_.setOptimizeCoefficients(true);
         seg_.setModelType(pcl::SACMODEL_PLANE);
@@ -65,8 +61,7 @@ public:
         );
         pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/lidar/filtered_points", 10);
         marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/lidar/cone_markers", 10);
-        
-        RCLCPP_INFO(this->get_logger(), "Pipeline Initialization Complete! Engine Ready.");
+        RCLCPP_INFO(this->get_logger(),"Done with constructing lidar_perception_node.");
     }
 
 private:
@@ -78,11 +73,11 @@ private:
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_roi_;
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_filtered_;
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_obstacles_;
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_near_;
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_far_;
 
-    pcl::PassThrough<pcl::PointXYZI> pass_x_, pass_y_, pass_z_, pass_dist_; // 算子池
-    pcl::VoxelGrid<pcl::PointXYZI> voxel_near_, voxel_far_;
+    pcl::CropBox<pcl::PointXYZI> crop_box_;
+    std::vector<pcl::PointCloud<pcl::PointXYZI>::Ptr> layer_clouds_;
+    int layer_count_cached_ = 0;
+    pcl::PointCloud<pcl::PointXYZI> layer_filtered_tmp_;
     pcl::SACSegmentation<pcl::PointXYZI> seg_;
     pcl::PointIndices::Ptr inliers_;
     pcl::ModelCoefficients::Ptr coefficients_;
@@ -109,10 +104,9 @@ private:
         float roi_z_min;
         float roi_z_max;
 
-        float distance_near_min;
-        float distance_near_max;
-        float distance_far_min;
-        float distance_far_max;
+        float distance_range_min;
+        float distance_range_max;
+        int distance_layer_count;
 
         float voxel_near_x;
         float voxel_near_y;
@@ -162,10 +156,9 @@ private:
         params_.roi_z_min = this->declare_parameter<float>("roi.z_min", -2.0f);
         params_.roi_z_max = this->declare_parameter<float>("roi.z_max", 0.5f);
 
-        params_.distance_near_min = this->declare_parameter<float>("distance.near_min", 1.5f);
-        params_.distance_near_max = this->declare_parameter<float>("distance.near_max", 15.0f);
-        params_.distance_far_min = this->declare_parameter<float>("distance.far_min", 15.0f);
-        params_.distance_far_max = this->declare_parameter<float>("distance.far_max", 30.0f);
+        params_.distance_range_min = this->declare_parameter<float>("distance.range_min", 1.5f);
+        params_.distance_range_max = this->declare_parameter<float>("distance.range_max", 30.0f);
+        params_.distance_layer_count = this->declare_parameter<int>("distance.layer_count", 3);
 
         params_.voxel_near_x = this->declare_parameter<float>("voxel.near_x", 0.1f);
         params_.voxel_near_y = this->declare_parameter<float>("voxel.near_y", 0.1f);
@@ -206,7 +199,7 @@ private:
         auto start_time = std::chrono::steady_clock::now();
 
         pcl_cloud_->clear(); cloud_roi_->clear(); cloud_filtered_->clear(); // 清空上一帧
-        cloud_obstacles_->clear(); cloud_near_->clear(); cloud_far_->clear();
+        cloud_obstacles_->clear();
 
         pcl::fromROSMsg(*msg, *pcl_cloud_); // 类型转换
 
@@ -237,22 +230,99 @@ private:
         RCLCPP_INFO(this->get_logger(), "Pipeline Cost: %.2f ms | Tracking %zu cones", cost_ms, active_tracks_.size());
     }
 
-    void preprocess_cloud() { // 预处理
-        pass_x_.setInputCloud(pcl_cloud_); pass_x_.filter(*cloud_roi_); // ROI
-        pass_y_.setInputCloud(cloud_roi_); pass_y_.filter(*cloud_roi_);
-        pass_z_.setInputCloud(cloud_roi_); pass_z_.filter(*cloud_roi_);
+void preprocess_cloud() { // 预处理
+        auto start_time = std::chrono::steady_clock::now();
 
-        pass_dist_.setInputCloud(cloud_roi_); // 分层
-        pass_dist_.setFilterLimits(params_.distance_near_min, params_.distance_near_max);
-        pass_dist_.filter(*cloud_near_);
-        pass_dist_.setFilterLimits(params_.distance_far_min, params_.distance_far_max);
-        pass_dist_.filter(*cloud_far_);
+        cloud_filtered_->clear();
+        cloud_roi_->clear();
 
-        pcl::PointCloud<pcl::PointXYZI> temp_near, temp_far; // 降采样
-        voxel_near_.setInputCloud(cloud_near_); voxel_near_.filter(temp_near);
-        voxel_far_.setInputCloud(cloud_far_);   voxel_far_.filter(temp_far);
+        if (pcl_cloud_->empty()) {
+            return;
+        }
 
-        *cloud_filtered_ = temp_near + temp_far;
+        const float min_r = params_.distance_range_min;
+        const float max_r = params_.distance_range_max;
+        const int layer_count = std::max(2, params_.distance_layer_count);
+        if (max_r <= min_r) {
+            return;
+        }
+
+        if (layer_count_cached_ != layer_count) { // 内存池分配
+            layer_clouds_.clear();
+            layer_clouds_.reserve(layer_count);
+            for (int i = 0; i < layer_count; ++i) {
+                layer_clouds_.emplace_back(new pcl::PointCloud<pcl::PointXYZI>);
+            }
+            layer_count_cached_ = layer_count;
+        }
+
+        const size_t reserve_per_layer = (pcl_cloud_->size() / 3) / static_cast<size_t>(layer_count) + 1; // 容量预估
+        for (auto& layer : layer_clouds_) {
+            layer->clear();
+            layer->points.reserve(reserve_per_layer);
+        }
+
+        const float step = (max_r - min_r) / static_cast<float>(layer_count); // ROI裁剪 + 径向分区 (单次循环)
+        const float min_r_sq = min_r * min_r;
+        const float max_r_sq = max_r * max_r;
+
+        for (const auto& pt : pcl_cloud_->points) {
+            if (pt.x < params_.roi_x_min || pt.x > params_.roi_x_max ||
+                pt.y < params_.roi_y_min || pt.y > params_.roi_y_max ||
+                pt.z < params_.roi_z_min || pt.z > params_.roi_z_max) {
+                continue;
+            }
+
+            cloud_roi_->points.push_back(pt);
+
+            float r_sq = pt.x * pt.x + pt.y * pt.y;
+            if (r_sq < min_r_sq || r_sq > max_r_sq) {
+                continue;
+            }
+
+            float r = std::sqrt(r_sq);
+            int layer_idx = static_cast<int>((r - min_r) / step);
+            if (layer_idx >= layer_count) {
+                layer_idx = layer_count - 1;
+            }
+            layer_clouds_[layer_idx]->points.push_back(pt);
+        }
+
+        const float near_x = std::min(params_.voxel_near_x, params_.voxel_far_x);
+        const float far_x = std::max(params_.voxel_near_x, params_.voxel_far_x);
+        const float near_y = std::min(params_.voxel_near_y, params_.voxel_far_y);
+        const float far_y = std::max(params_.voxel_near_y, params_.voxel_far_y);
+        const float near_z = std::min(params_.voxel_near_z, params_.voxel_far_z);
+        const float far_z = std::max(params_.voxel_near_z, params_.voxel_far_z);
+
+        pcl::VoxelGrid<pcl::PointXYZI> voxel;  // 体素大小按距离线性插值
+        for (int i = 0; i < layer_count; ++i) {
+            const auto& layer = layer_clouds_[i];
+            if (layer->empty()) {
+                continue;
+            }
+
+            float layer_min = min_r + step * static_cast<float>(i);
+            float layer_max = min_r + step * static_cast<float>(i + 1);
+            float layer_center = 0.5f * (layer_min + layer_max);
+
+            float t = (layer_center - min_r) / (max_r - min_r);
+            t = std::clamp(t, 0.0f, 1.0f);
+
+            float leaf_x = near_x + t * (far_x - near_x);
+            float leaf_y = near_y + t * (far_y - near_y);
+            float leaf_z = near_z + t * (far_z - near_z);
+
+            voxel.setLeafSize(leaf_x, leaf_y, leaf_z);
+            voxel.setInputCloud(layer);
+            layer_filtered_tmp_.clear();
+            voxel.filter(layer_filtered_tmp_);
+            *cloud_filtered_ += layer_filtered_tmp_;
+        }
+
+        auto end_time = std::chrono::steady_clock::now();
+        double cost_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+        RCLCPP_INFO(this->get_logger(), "Preprocess Cost: %.2f ms", cost_ms);
     }
 
     void remove_ground() { // RANSAC
