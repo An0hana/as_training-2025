@@ -14,6 +14,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common filters) # 第三方依赖
+find_package(Eigen3 REQUIRED)
+find_package(patchworkpp REQUIRED)
 
 add_library(lidar_perception_node SHARED src/lidar_perception_node.cpp) # 编译动态库
 
@@ -27,9 +29,11 @@ ament_target_dependencies(lidar_perception_node # 链接ROS库
 
 target_include_directories(lidar_perception_node PUBLIC # 链接第三方库
   ${PCL_INCLUDE_DIRS}
+  /opt/patchworkpp/include
 )
 target_link_libraries(lidar_perception_node
   ${PCL_LIBRARIES}
+  /opt/patchworkpp/lib/libground_seg_cores.a
 )
 
 rclcpp_components_register_node(lidar_perception_node # 注册组件插件

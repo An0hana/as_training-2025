@@ -16,11 +16,9 @@
 
 #include <pcl/filters/crop_box.h>
 #include <pcl/filters/voxel_grid.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/filters/extract_indices.h>
 #include <pcl/search/kdtree.h>
+
+#include <patchwork/patchworkpp.h>
 
 namespace as_training {
 
@@ -36,24 +34,19 @@ public:
         cloud_filtered_.reset(new pcl::PointCloud<pcl::PointXYZI>);
         cloud_obstacles_.reset(new pcl::PointCloud<pcl::PointXYZI>);
         
-        inliers_.reset(new pcl::PointIndices);
-        coefficients_.reset(new pcl::ModelCoefficients);
         kdtree_.reset(new pcl::search::KdTree<pcl::PointXYZI>);
 
         load_params();
+
+        patchwork::Params pw_params;
+        pw_params.sensor_height = 1.2;
+        patchwork_ = std::make_unique<patchwork::PatchWorkpp>(pw_params);
 
         Eigen::Vector4f roi_min(params_.roi_x_min, params_.roi_y_min, params_.roi_z_min, 1.0f);
         Eigen::Vector4f roi_max(params_.roi_x_max, params_.roi_y_max, params_.roi_z_max, 1.0f);
         crop_box_.setMin(roi_min);
         crop_box_.setMax(roi_max);
         crop_box_.setNegative(false);
-
-        seg_.setOptimizeCoefficients(true);
-        seg_.setModelType(pcl::SACMODEL_PLANE);
-        seg_.setMethodType(pcl::SAC_RANSAC);
-        seg_.setMaxIterations(params_.ransac_max_iterations);
-        seg_.setDistanceThreshold(params_.ransac_distance_threshold);
-        extract_.setNegative(true);
 
         sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             "/sensor/lidar/pointcloud", 10,
@@ -78,10 +71,9 @@ private:
     std::vector<pcl::PointCloud<pcl::PointXYZI>::Ptr> layer_clouds_;
     int layer_count_cached_ = 0;
     pcl::PointCloud<pcl::PointXYZI> layer_filtered_tmp_;
-    pcl::SACSegmentation<pcl::PointXYZI> seg_;
-    pcl::PointIndices::Ptr inliers_;
-    pcl::ModelCoefficients::Ptr coefficients_;
-    pcl::ExtractIndices<pcl::PointXYZI> extract_;
+    
+    std::unique_ptr<patchwork::PatchWorkpp> patchwork_;
+    Eigen::MatrixXf cloud_eigen_;
     pcl::search::KdTree<pcl::PointXYZI>::Ptr kdtree_;
 
     struct Track { // 目标追踪状态机
@@ -203,9 +195,11 @@ private:
 
         pcl::fromROSMsg(*msg, *pcl_cloud_); // 类型转换
 
-        preprocess_cloud();
+        cut_roi();
 
         remove_ground();
+
+        downsampling();
 
         float dt = params_.timing_fallback_dt;
         const rclcpp::Time current_stamp(msg->header.stamp);
@@ -230,13 +224,75 @@ private:
         RCLCPP_INFO(this->get_logger(), "Pipeline Cost: %.2f ms | Tracking %zu cones", cost_ms, active_tracks_.size());
     }
 
-void preprocess_cloud() { // 预处理
-        auto start_time = std::chrono::steady_clock::now();
-
-        cloud_filtered_->clear();
+    void cut_roi() { // ROI 裁剪
         cloud_roi_->clear();
 
         if (pcl_cloud_->empty()) {
+            return;
+        }
+
+        const float min_r_sq = params_.distance_range_min * params_.distance_range_min;
+        const float max_r_sq = params_.distance_range_max * params_.distance_range_max;
+
+        cloud_roi_->points.reserve(pcl_cloud_->size() / 2); // 预分配内存
+        for (const auto& pt : pcl_cloud_->points) {
+            if (pt.x < params_.roi_x_min || pt.x > params_.roi_x_max ||
+                pt.y < params_.roi_y_min || pt.y > params_.roi_y_max ||
+                pt.z < params_.roi_z_min || pt.z > params_.roi_z_max) {
+                continue;
+            }
+
+            float r_sq = pt.x * pt.x + pt.y * pt.y;
+            if (r_sq < min_r_sq || r_sq > max_r_sq) {
+                continue;
+            }
+
+            cloud_roi_->points.push_back(pt);
+        }
+    }
+
+    void remove_ground() { // Patchwork++
+        if (cloud_roi_->empty()) {
+            cloud_obstacles_->clear();
+            return;
+        }
+
+        cloud_obstacles_->clear();
+        auto t_start = std::chrono::steady_clock::now();
+
+        const size_t num_points = cloud_roi_->size(); // PCL 转 Eigen::MatrixXf
+        if (static_cast<size_t>(cloud_eigen_.rows()) < num_points) {
+            cloud_eigen_.resize(num_points * 1.2, 3);
+        }
+        for (size_t i = 0; i < num_points; ++i) {
+            cloud_eigen_(i, 0) = cloud_roi_->points[i].x;
+            cloud_eigen_(i, 1) = cloud_roi_->points[i].y;
+            cloud_eigen_(i, 2) = cloud_roi_->points[i].z;
+        }
+
+        patchwork_->estimateGround(cloud_eigen_.block(0, 0, num_points, 3)); // 执行patchwork++
+
+        Eigen::VectorXi nonground_idx = patchwork_->getNongroundIndices(); // 索引提取障碍物
+        cloud_obstacles_->reserve(nonground_idx.size());
+        for (int i = 0; i < nonground_idx.size(); ++i) {
+            cloud_obstacles_->push_back(cloud_roi_->points[nonground_idx(i)]);
+        }
+
+        if (cloud_obstacles_->empty()) {
+            RCLCPP_WARN(this->get_logger(), "Ground lost! Fallback to roi."); // 边界条件
+            *cloud_obstacles_ = *cloud_roi_; 
+            return;
+        } else {
+            auto t_end = std::chrono::steady_clock::now();
+            double cost_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+            RCLCPP_INFO(this->get_logger(), "Patchwork++ Segment Cost: %.2f ms", cost_ms);
+        }
+    }
+
+    void downsampling() {
+        cloud_filtered_->clear();
+
+        if (cloud_obstacles_->empty()) {
             return;
         }
 
@@ -256,35 +312,19 @@ void preprocess_cloud() { // 预处理
             layer_count_cached_ = layer_count;
         }
 
-        const size_t reserve_per_layer = (pcl_cloud_->size() / 3) / static_cast<size_t>(layer_count) + 1; // 容量预估
+        const size_t reserve_per_layer = (cloud_obstacles_->size() / 3) / static_cast<size_t>(layer_count) + 1; // 容量预估
         for (auto& layer : layer_clouds_) {
             layer->clear();
             layer->points.reserve(reserve_per_layer);
         }
 
         const float step = (max_r - min_r) / static_cast<float>(layer_count); // ROI裁剪 + 径向分区 (单次循环)
-        const float min_r_sq = min_r * min_r;
-        const float max_r_sq = max_r * max_r;
 
-        for (const auto& pt : pcl_cloud_->points) {
-            if (pt.x < params_.roi_x_min || pt.x > params_.roi_x_max ||
-                pt.y < params_.roi_y_min || pt.y > params_.roi_y_max ||
-                pt.z < params_.roi_z_min || pt.z > params_.roi_z_max) {
-                continue;
-            }
-
-            cloud_roi_->points.push_back(pt);
-
+        for (const auto& pt : cloud_obstacles_->points) {
             float r_sq = pt.x * pt.x + pt.y * pt.y;
-            if (r_sq < min_r_sq || r_sq > max_r_sq) {
-                continue;
-            }
-
             float r = std::sqrt(r_sq);
             int layer_idx = static_cast<int>((r - min_r) / step);
-            if (layer_idx >= layer_count) {
-                layer_idx = layer_count - 1;
-            }
+            layer_idx = std::clamp(layer_idx, 0, layer_count - 1);
             layer_clouds_[layer_idx]->points.push_back(pt);
         }
 
@@ -296,6 +336,7 @@ void preprocess_cloud() { // 预处理
         const float far_z = std::max(params_.voxel_near_z, params_.voxel_far_z);
 
         pcl::VoxelGrid<pcl::PointXYZI> voxel;  // 体素大小按距离线性插值
+        cloud_filtered_->points.reserve(cloud_obstacles_->size() / 2); // 预分配内存
         for (int i = 0; i < layer_count; ++i) {
             const auto& layer = layer_clouds_[i];
             if (layer->empty()) {
@@ -319,30 +360,8 @@ void preprocess_cloud() { // 预处理
             voxel.filter(layer_filtered_tmp_);
             *cloud_filtered_ += layer_filtered_tmp_;
         }
-
-        auto end_time = std::chrono::steady_clock::now();
-        double cost_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-        RCLCPP_INFO(this->get_logger(), "Preprocess Cost: %.2f ms", cost_ms);
-    }
-
-    void remove_ground() { // RANSAC
-        if (cloud_filtered_->empty()) {
-            cloud_obstacles_->clear();
-            return;
-        }
-
-        seg_.setInputCloud(cloud_filtered_);
-        seg_.segment(*inliers_, *coefficients_);
-
-        if (!inliers_->indices.empty()) {
-            extract_.setInputCloud(cloud_filtered_);
-            extract_.setIndices(inliers_);
-            extract_.filter(*cloud_obstacles_);
-        } else {
-            RCLCPP_WARN(this->get_logger(), "Ground lost! Fallback to filtered.");
-            *cloud_obstacles_ = *cloud_filtered_;
-        }
-        return;
+        
+        cloud_obstacles_.swap(cloud_filtered_);
     }
 
     void cluster_and_track(const std_msgs::msg::Header& header, float dt) { // KdTree + 欧式聚类

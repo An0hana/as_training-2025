@@ -9,7 +9,7 @@ lidar_perception_node:
       z_max: -0.5
 
     distance:
-      range_min: 1.5
+      range_min: 0.5
       range_max: 30.0
       layer_count: 3
 
