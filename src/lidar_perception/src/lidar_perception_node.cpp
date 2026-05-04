@@ -473,14 +473,14 @@ private:
     }
     cloud_obstacles_->clear();
     const size_t num_points = cloud_roi_->size();
-    if (static_cast<size_t>(cloud_eigen_.rows()) < num_points)
-      cloud_eigen_.resize(num_points * 1.2, 3);
-    for (size_t i = 0; i < num_points; ++i) {
-      cloud_eigen_(i, 0) = cloud_roi_->points[i].x;
-      cloud_eigen_(i, 1) = cloud_roi_->points[i].y;
-      cloud_eigen_(i, 2) = cloud_roi_->points[i].z;
-    }
-    patchwork_->estimateGround(cloud_eigen_.block(0, 0, num_points, 3));
+
+    Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>,
+               Eigen::Unaligned,
+               Eigen::Stride<sizeof(pcl::PointXYZI) / sizeof(float), 1>>
+        mapped_cloud(&cloud_roi_->points[0].x, num_points, 3);
+
+    patchwork_->estimateGround(mapped_cloud);
+
     Eigen::VectorXi nonground_idx = patchwork_->getNongroundIndices();
     cloud_obstacles_->reserve(nonground_idx.size());
     for (int i = 0; i < nonground_idx.size(); ++i) {
