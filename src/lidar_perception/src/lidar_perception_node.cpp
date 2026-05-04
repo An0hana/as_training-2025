@@ -24,6 +24,13 @@
 
 namespace as_training {
 
+namespace constants { // 算法底层常量
+    constexpr int SPATIAL_HASH_SIZE = 500009;
+    constexpr int HASH_PRIME_X = 73856093;
+    constexpr int HASH_PRIME_Y = 19349663;
+    constexpr int HASH_PRIME_Z = 83492791;
+}
+
 class HungarianAlgorithm { // 匈牙利算法实现二分图最大权匹配
 public:
   static void Solve(const std::vector<std::vector<float>> &DistMatrix,
@@ -150,7 +157,8 @@ public:
     load_params();
 
     patchwork::Params pw_params;
-    pw_params.sensor_height = 1.2;
+    pw_params.sensor_height = params_.sensor_height;
+    pw_params.enable_RNR = false;
     patchwork_ = std::make_unique<patchwork::PatchWorkpp>(pw_params);
 
     Eigen::Vector4f roi_min(params_.roi_x_min, params_.roi_y_min,
@@ -162,22 +170,22 @@ public:
     crop_box_.setNegative(false);
 
     Q_ = Eigen::Matrix4f::Zero(); // 初始化过程噪声和观测噪声
-    Q_(0, 0) = 0.1f;
-    Q_(1, 1) = 0.1f; // 位置不确定性
-    Q_(2, 2) = 10.0f;
-    Q_(3, 3) = 10.0f; // 速度极度不确定
+    Q_(0, 0) = params_.kf_q_pos;
+    Q_(1, 1) = params_.kf_q_pos; // 位置不确定性
+    Q_(2, 2) = params_.kf_q_vel;
+    Q_(3, 3) = params_.kf_q_vel; // 速度不确定性
 
     R_ = Eigen::Matrix2f::Zero();
-    R_(0, 0) = 0.05f;
-    R_(1, 1) = 0.05f; // 观测精度
+    R_(0, 0) = params_.kf_r_pos;
+    R_(1, 1) = params_.kf_r_pos; // 观测精度
 
     sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        "/sensor/lidar/pointcloud", rclcpp::SensorDataQoS(),
+        "/sensor/lidar/pointcloud", 10,
         [this](sensor_msgs::msg::PointCloud2::UniquePtr msg) {
           this->cloud_callback(std::move(msg));
         });
     pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/lidar/filtered_points", rclcpp::SensorDataQoS());
+        "/lidar/filtered_points", 10);
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
         "/lidar/cone_markers", 10);
 
@@ -252,6 +260,8 @@ private:
     int ransac_max_iterations;
     float ransac_distance_threshold;
 
+    float sensor_height;
+
     float bev_grid_res;
 
     int cluster_min_size;
@@ -265,7 +275,13 @@ private:
 
     float tracking_match_thresh;
     int tracking_max_missed;
+    float kf_q_pos;
+    float kf_q_vel;
+    float kf_r_pos;
+    float kf_p_init_vel;
 
+    float detection_max_aspect_ratio;
+    float detection_max_elevation;
     float marker_box_scale_min;
     float marker_lifetime;
     int marker_text_id_offset;
@@ -310,6 +326,8 @@ private:
     params_.ransac_distance_threshold = this->declare_parameter<float>(
         "ground.ransac_distance_threshold", 0.18f);
 
+    params_.sensor_height = this->declare_parameter<float>("patchwork.sensor_height", 1.2f);
+
     params_.bev_grid_res =
         this->declare_parameter<float>("cluster.bev_grid_res", 0.15f);
 
@@ -336,7 +354,13 @@ private:
         this->declare_parameter<float>("tracking.match_thresh", 1.0f);
     params_.tracking_max_missed =
         this->declare_parameter<int>("tracking.max_missed", 3);
+    params_.kf_q_pos = this->declare_parameter<float>("tracking.kf_q_pos", 0.1f);
+    params_.kf_q_vel = this->declare_parameter<float>("tracking.kf_q_vel", 10.0f);
+    params_.kf_r_pos = this->declare_parameter<float>("tracking.kf_r_pos", 0.05f);
+    params_.kf_p_init_vel = this->declare_parameter<float>("tracking.kf_p_init_vel", 50.0f);
 
+    params_.detection_max_aspect_ratio = this->declare_parameter<float>("detection.max_aspect_ratio", 2.0f);
+    params_.detection_max_elevation = this->declare_parameter<float>("detection.max_elevation", 0.5f);
     params_.marker_box_scale_min =
         this->declare_parameter<float>("marker.box_scale_min", 0.2f);
     params_.marker_lifetime =
@@ -495,8 +519,7 @@ private:
     if (cloud_roi_->empty())
       return;
 
-    const int HASH_SIZE = 500009;
-    static std::vector<int> hash_table(HASH_SIZE, -1);
+    static std::vector<int> hash_table(constants::SPATIAL_HASH_SIZE, -1);
     static std::vector<int> active_hashes;
     active_hashes.reserve(cloud_roi_->size());
 
@@ -534,9 +557,9 @@ private:
       int hy = static_cast<int>(std::floor(pt.y / leaf_y));
       int hz = static_cast<int>(std::floor(pt.z / leaf_z));
 
-      int hash_val = (((hx * 73856093) ^ (hy * 19349663) ^ (hz * 83492791)) % HASH_SIZE); // 空间质数哈希
+      int hash_val = (((hx * constants::HASH_PRIME_X) ^ (hy * constants::HASH_PRIME_Y) ^ (hz * constants::HASH_PRIME_Z)) % constants::SPATIAL_HASH_SIZE); // 空间质数哈希
       if (hash_val < 0)
-        hash_val += HASH_SIZE;
+        hash_val += constants::SPATIAL_HASH_SIZE;
 
       if (hash_table[hash_val] == -1) { // 存入第一个遇到该格子的点
         hash_table[hash_val] = 1;
@@ -628,11 +651,25 @@ private:
     for (const auto &cluster : cluster_indices) {
       Eigen::Vector4f min_pt, max_pt;
       pcl::getMinMax3D(*cloud_obstacles_, cluster.indices, min_pt, max_pt);
-      float sx = max_pt[0] - min_pt[0], sy = max_pt[1] - min_pt[1],
-            sz = max_pt[2] - min_pt[2];
+      
+      float sx = max_pt[0] - min_pt[0];
+      float sy = max_pt[1] - min_pt[1];
+      float sz = max_pt[2] - min_pt[2];
+      
       if (sx > params_.detection_max_sx || sy > params_.detection_max_sy ||
-          sz > params_.detection_max_sz || sz < params_.detection_min_sz)
+          sz > params_.detection_max_sz || sz < params_.detection_min_sz) { // 长宽高过滤
         continue;
+      }
+
+      float aspect_ratio = std::max(sx, sy) / std::max(std::min(sx, sy), 0.01f);
+      if (aspect_ratio > params_.detection_max_aspect_ratio) { // 长宽比过滤
+        continue;
+      }
+
+      if (min_pt[2] > params_.detection_max_elevation) { // 悬空高度过滤
+        continue;
+      }
+
       detections.push_back({(min_pt[0] + max_pt[0]) * 0.5f,
                             (min_pt[1] + max_pt[1]) * 0.5f,
                             (min_pt[2] + max_pt[2]) * 0.5f, sx, sy, sz});
@@ -699,8 +736,8 @@ private:
             0.0f;
 
         t.P = Eigen::Matrix4f::Identity(); // 初始协方差，位置确定，速度不确定
-        t.P(2, 2) = 50.0f;
-        t.P(3, 3) = 50.0f;
+        t.P(2, 2) = params_.kf_p_init_vel;
+        t.P(3, 3) = params_.kf_p_init_vel;
 
         t.z = detections[i].z;
         t.sx = detections[i].sx;
@@ -751,24 +788,6 @@ private:
       box.color.a = 0.5f;
       box.lifetime = rclcpp::Duration::from_seconds(params_.marker_lifetime);
       marker_array.markers.push_back(box);
-
-      visualization_msgs::msg::Marker text;
-      text.header = header;
-      text.ns = "cone_ids";
-      text.id = track.id + params_.marker_text_id_offset;
-      text.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-      text.action = visualization_msgs::msg::Marker::ADD;
-      text.pose.position.x = track.x(0);
-      text.pose.position.y = track.x(1);
-      text.pose.position.z = track.z + params_.marker_text_offset_z;
-      text.scale.z = params_.marker_text_scale;
-      text.color.r = 1.0f;
-      text.color.g = 1.0f;
-      text.color.b = 1.0f;
-      text.color.a = 1.0f;
-      text.text = std::to_string(track.id);
-      text.lifetime = rclcpp::Duration::from_seconds(params_.marker_lifetime);
-      marker_array.markers.push_back(text);
     }
 
     marker_pub_->publish(marker_array);
