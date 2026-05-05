@@ -439,13 +439,12 @@ private:
     }
 
     auto t1 = std::chrono::steady_clock::now();
-    auto t2 = t1; // cut_roi logic fused
 
     downsampling();
-    auto t3 = std::chrono::steady_clock::now();
+    auto t2 = std::chrono::steady_clock::now();
 
     remove_ground();
-    auto t4 = std::chrono::steady_clock::now();
+    auto t3 = std::chrono::steady_clock::now();
 
     float dt = params_.timing_fallback_dt;
     const rclcpp::Time current_stamp(msg->header.stamp);
@@ -458,7 +457,7 @@ private:
     has_last_stamp_ = true;
 
     cluster_and_track(msg->header, dt);
-    auto t5 = std::chrono::steady_clock::now();
+    auto t4 = std::chrono::steady_clock::now();
 
     auto output_msg = std::make_unique<sensor_msgs::msg::PointCloud2>();
     pcl::toROSMsg(*cloud_obstacles_, *output_msg);
@@ -469,24 +468,22 @@ private:
 
     double cost_pcl =
         std::chrono::duration<double, std::milli>(t1 - start_time).count();
-    double cost_roi =
-        std::chrono::duration<double, std::milli>(t2 - t1).count();
     double cost_downsample =
-        std::chrono::duration<double, std::milli>(t3 - t2).count();
+        std::chrono::duration<double, std::milli>(t2 - t1).count();
     double cost_ground =
-        std::chrono::duration<double, std::milli>(t4 - t3).count();
+        std::chrono::duration<double, std::milli>(t3 - t2).count();
     double cost_track =
-        std::chrono::duration<double, std::milli>(t5 - t4).count();
+        std::chrono::duration<double, std::milli>(t4 - t3).count();
     double cost_pub =
-        std::chrono::duration<double, std::milli>(end_time - t5).count();
+        std::chrono::duration<double, std::milli>(end_time - t4).count();
     double cost_total =
         std::chrono::duration<double, std::milli>(end_time - start_time)
             .count();
 
     RCLCPP_INFO(this->get_logger(),
-                "Time [Total: %.2fms] PCL: %.2f | ROI: %.2f | Grnd: %.2f | DS: "
+                "Time [Total: %.2fms] Parse: %.2f | Grnd: %.2f | DS: "
                 "%.2f | Track: %.2f | Pub: %.2f | Cones: %zu",
-                cost_total, cost_pcl, cost_roi, cost_ground, cost_downsample,
+                cost_total, cost_pcl, cost_ground, cost_downsample,
                 cost_track, cost_pub, active_tracks_.size());
   }
 
