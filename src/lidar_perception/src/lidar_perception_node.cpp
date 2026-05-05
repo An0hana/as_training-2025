@@ -185,7 +185,7 @@ public:
           this->cloud_callback(std::move(msg));
         });
     pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-        "/lidar/filtered_points", 10);
+        "/lidar/filtered_points", rclcpp::SensorDataQoS());
     marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
         "/lidar/cone_markers", 10);
 
@@ -767,8 +767,8 @@ private:
     marker_array.markers.push_back(delete_all);
 
     for (const auto &track : active_tracks_) {
-      if (track.time_since_update > 0)
-        continue;
+      //if (track.time_since_update > 0)
+      //  continue;
 
       visualization_msgs::msg::Marker box;
       box.header = header;
