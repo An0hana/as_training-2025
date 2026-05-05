@@ -11,7 +11,6 @@ __pycache__/
 *.cache
 *.db
 *.vscode/
-*.mp4
 *.avi
 *.mkvcompile_commands.json
 compile_commands.json

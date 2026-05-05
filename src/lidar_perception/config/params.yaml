@@ -44,8 +44,8 @@ lidar_perception_node:
     tracking:
       match_thresh: 1.0
       max_missed: 3
-      kf_q_pos: 0.1
-      kf_q_vel: 10.0
+      kf_q_pos: 0.5
+      kf_q_vel: 50.0
       kf_r_pos: 0.01
       kf_p_init_vel: 50.0
 
